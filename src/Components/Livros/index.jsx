@@ -107,16 +107,38 @@ const Listagem = () => {
   };
 
   const handleDelete = (id) => {
-    if (window.confirm("Tem certeza que deseja excluir este item?")) {
-      fetch(`http://hospitalemcor.com.br/eplantao/api/books.php?id=${id}`, {
+    if (window.confirm("Tem certeza que deseja excluir este livro?")) {
+      fetch(`http://hospitalemcor.com.br/eplantao/api/books.php`, {
         method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
       })
         .then((res) => res.json())
-        .then(() => {
-          setData(data.filter((item) => item.id !== id));
+        .then((response) => {
+          if (!response.success) {
+            if (response.relatedPages) {
+              alert(
+                `Não foi possível excluir o livro. Ele está relacionado às páginas: ${response.relatedPages.join(
+                  ", "
+                )}.`
+              );
+            } else {
+              alert(response.error || "Erro ao excluir o livro.");
+            }
+          } else {
+            alert("Livro excluído com sucesso!");
+            fetch("http://hospitalemcor.com.br/eplantao/api/books.php")
+              .then((res) => res.json())
+              .then((data) => setData(data));
+          }
+        })
+        .catch((error) => {
+          console.error("Erro:", error);
+          alert("Ocorreu um erro ao tentar excluir o livro. Tente novamente.");
         });
     }
   };
+  
 
   const filteredData = data.filter((item) => {
     const matchesName = item.name
