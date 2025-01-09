@@ -3,7 +3,7 @@ import {
   Box,
   Typography,
   TextField,
-  MenuItem,
+  MenuItem, // eslint-disable-next-line
   Button,
   Checkbox,
   FormControlLabel,
@@ -12,20 +12,24 @@ import {
   FormLabel,
   Switch,
   Paper,
+  TextareaAutosize,
 } from "@mui/material";
 import { useParams } from "react-router-dom";
+import TableField from "./tableField";
+
+const PAGE_HEIGHT_MM = 297; // Altura de uma página A4 em milímetros
 
 const LayoutViewer = () => {
   const { id } = useParams(); // Obtém o ID da URL
   const [template, setTemplate] = useState(null);
   const [formValues, setFormValues] = useState({}); // Para gerenciar os valores do formulário
+  const [pages, setPages] = useState([]); // Gerencia as páginas divididas
 
-  // Recupera o layout do backend
   useEffect(() => {
     const fetchTemplate = async () => {
       try {
         const response = await fetch(
-          `http://hospitalemcor.com.br/eplantao/api/templates.php?id=${id}`, // Passa o ID via query string
+          `http://hospitalemcor.com.br/eplantao/api/templates.php?id=${id}`,
           {
             method: "GET",
           }
@@ -38,19 +42,102 @@ const LayoutViewer = () => {
         const data = await response.json();
         setTemplate(data);
 
-        // Inicializa os valores do formulário
         const initialValues = {};
         data.fields.forEach((field) => {
           initialValues[field.name] = field.defaultValue || "";
         });
         setFormValues(initialValues);
+
+        // Divide o layout em páginas
+        paginateFields(data.fields);
       } catch (error) {
         console.error("Erro ao buscar o template:", error);
       }
     };
 
-    fetchTemplate();
+    fetchTemplate(); // eslint-disable-next-line
   }, [id]);
+
+  const paginateFields = (fields) => {
+    const pages = [];
+    let currentPage = [];
+    let currentHeight = 0;
+
+    fields.forEach((field) => {
+      // Calcula a altura estimada do campo
+      const estimatedHeight = estimateFieldHeight(field);
+
+      // Verifica se o campo excede a altura da página
+      if (currentHeight + estimatedHeight > PAGE_HEIGHT_MM) {
+        pages.push(currentPage); // Adiciona a página atual à lista
+        currentPage = []; // Reinicia a página
+        currentHeight = 0; // Reinicia a altura da página
+      }
+
+      // Adiciona o campo à página
+      currentPage.push(field);
+      currentHeight += estimatedHeight;
+
+      // Para campos tipo 'table' ou 'textbox', calcula a altura especial
+      if (field.type === "table" || field.type === "textbox") {
+        const specialHeight = estimateTextboxHeight(field.value || "");
+        if (currentHeight + specialHeight > PAGE_HEIGHT_MM) {
+          // Se o campo especial exceder a altura, começa uma nova página
+          pages.push(currentPage);
+          currentPage = [];
+          currentHeight = 0;
+        }
+        currentHeight += specialHeight; // Adiciona a altura especial
+      }
+    });
+
+    // Adiciona a última página, se houver campos restantes
+    if (currentPage.length > 0) {
+      pages.push(currentPage);
+    }
+
+    setPages(pages); // Atualiza o estado com as páginas
+  };
+
+  const estimateFieldHeight = (field) => {
+    switch (field.type) {
+      case "typography":
+      case "text":
+      case "email":
+      case "number":
+      case "date":
+        return 20;
+      case "select":
+      case "checkbox":
+      case "radio":
+        return 15 + 15 * (field.options?.length || 0);
+      case "switch":
+      case "table":
+        return 21 * (field.rows || 1); // `rows` vem do campo; usa 1 como valor padrão caso não esteja definido
+      case "textbox":
+        // Estima altura baseada no número de linhas de texto
+        return estimateTextboxHeight(field.value);
+      default:
+        return 15;
+    }
+  };
+  // Função para estimar a altura de um campo de texto
+  const estimateTextboxHeight = (text) => {
+    // Verifica se o campo de texto tem um valor válido
+    if (!text) {
+      return 20; // Retorna altura mínima caso o texto esteja vazio ou indefinido
+    }
+
+    // Divide o texto em linhas e conta o número de linhas
+    const CHARACTERS_PER_LINE = 58; // Ajuste conforme necessário
+    const lineHeight = 20; // Ajuste a altura da linha conforme o estilo do seu textarea
+
+    // Calcula o número de linhas com base no comprimento do texto
+    const numberOfLines = Math.ceil(text.length / CHARACTERS_PER_LINE);
+
+    // Retorna a altura estimada com base no número de linhas
+    return numberOfLines * lineHeight;
+  };
 
   const handleChange = (name, value) => {
     setFormValues((prevValues) => ({
@@ -67,139 +154,176 @@ const LayoutViewer = () => {
   if (!template) return <Typography>Carregando...</Typography>;
 
   return (
-    <Paper sx={{ width: "210mm", height: "297mm", margin: "1%" }}>
-      <Box sx={{ padding: 3, maxWidth: 600, margin: "0 auto" }}>
-        <Typography variant="h4" gutterBottom>
-          {template.name}
-        </Typography>
-        <Box component="form" onSubmit={handleSubmit}>
-          {template.fields.map((field, index) => (
-            <Box key={index} sx={{ marginBottom: 2 }}>
-              {/* Tipo de Campo: Texto */}
+    <Box>
+      {pages.map((pageFields, pageIndex) => (
+        <Paper
+          key={pageIndex}
+          sx={{
+            width: "210mm",
+            height: `${PAGE_HEIGHT_MM}mm`,
+            margin: "1%",
+            pageBreakAfter: "always",
+          }}
+        >
+          <Box sx={{ padding: 3, maxWidth: 600, margin: "0 auto" }}>
+            <Typography variant="h4" gutterBottom>
+              {template.name} - Página {pageIndex + 1}
+            </Typography>
+            <Box component="form" onSubmit={handleSubmit}>
+              {pageFields.map((field, index) => (
+                <Box key={index} sx={{ marginBottom: 2 }}>
+                  {field.type === "typography" && (
+                    <Typography
+                      variant={field.variant}
+                      align={field.align}
+                      color={field.color}
+                    >
+                      {field.value}
+                    </Typography>
+                  )}
 
-              {field.type === "typography" && <Typography />}
-              {field.type === "text" && (
-                <TextField
-                  fullWidth
-                  label={field.label}
-                  placeholder={field.placeholder || ""}
-                  variant="outlined"
-                  value={formValues[field.name]}
-                  onChange={(e) => handleChange(field.name, e.target.value)}
-                />
-              )}
-
-              {/* Tipo de Campo: E-MAIL */}
-              {field.type === "email" && (
-                <TextField
-                  fullWidth
-                  type="email"
-                  label={field.label}
-                  placeholder={field.placeholder || ""}
-                  variant="outlined"
-                  value={formValues[field.name]}
-                  onChange={(e) => handleChange(field.name, e.target.value)}
-                />
-              )}
-
-              {/* Tipo de Campo: Número */}
-              {field.type === "number" && (
-                <TextField
-                  fullWidth
-                  type="number"
-                  label={field.label}
-                  placeholder={field.placeholder || ""}
-                  variant="outlined"
-                  value={formValues[field.name]}
-                  onChange={(e) => handleChange(field.name, e.target.value)}
-                />
-              )}
-
-              {/* Tipo de Campo: Data */}
-              {field.type === "date" && (
-                <TextField
-                  fullWidth
-                  type="date"
-                  label={field.label}
-                  InputLabelProps={{ shrink: true }}
-                  variant="outlined"
-                  value={formValues[field.name]}
-                  onChange={(e) => handleChange(field.name, e.target.value)}
-                />
-              )}
-
-              {/* Tipo de Campo: Seleção (Dropdown) */}
-              {field.type === "select" && (
-                <TextField
-                  fullWidth
-                  select
-                  label={field.label}
-                  variant="outlined"
-                  value={formValues[field.name]}
-                  onChange={(e) => handleChange(field.name, e.target.value)}
-                >
-                  {field.options.map((option, idx) => (
-                    <MenuItem key={idx} value={option.value}>
-                      {option.label}
-                    </MenuItem>
-                  ))}
-                </TextField>
-              )}
-
-              {/* Tipo de Campo: Checkbox */}
-              {field.type === "checkbox" && (
-                <FormControlLabel
-                  control={
-                    <Checkbox
-                      checked={!!formValues[field.name]}
-                      onChange={(e) =>
-                        handleChange(field.name, e.target.checked)
-                      }
+                  {field.type === "text" && (
+                    <TextField
+                      fullWidth
+                      label={field.label}
+                      placeholder={field.placeholder || ""}
+                      variant="outlined"
+                      value={formValues[field.name]}
+                      onChange={(e) => handleChange(field.name, e.target.value)}
                     />
-                  }
-                  label={field.label}
-                />
-              )}
+                  )}
 
-              {/* Tipo de Campo: Radio */}
-              {field.type === "radio" && (
-                <Box>
-                  <FormLabel>{field.label}</FormLabel>
-                  <RadioGroup
-                    value={formValues[field.name]}
-                    onChange={(e) => handleChange(field.name, e.target.value)}
-                  >
-                    {field.options.map((option, idx) => (
-                      <FormControlLabel
-                        key={idx}
-                        value={option.value}
-                        control={<Radio />}
-                        label={option.label}
-                      />
-                    ))}
-                  </RadioGroup>
+                  {field.type === "textbox" && (
+                    <TextareaAutosize
+                      style={{
+                        width: "100%",
+                        fontSize: "0.84em",
+                        fontFamily: "IBM Plex Sans, sans-serif",
+                        padding: "8px 12px",
+                        lineHeight: "1.5",
+                        borderRadius: "6px",
+                      }}
+                      label={field.label}
+                      placeholder={field.placeholder || ""}
+                      minRows={field.rows || ""}
+                      maxRows={field.rows || ""}
+                      value={formValues[field.name]}
+                      onChange={(e) => handleChange(field.name, e.target.value)}
+                    />
+                  )}
+
+                  {field.type === "email" && (
+                    <TextField
+                      fullWidth
+                      type="email"
+                      label={field.label}
+                      placeholder={field.placeholder || ""}
+                      variant="outlined"
+                      value={formValues[field.name]}
+                      onChange={(e) => handleChange(field.name, e.target.value)}
+                    />
+                  )}
+
+                  {field.type === "number" && (
+                    <TextField
+                      fullWidth
+                      type="number"
+                      label={field.label}
+                      placeholder={field.placeholder || ""}
+                      variant="outlined"
+                      value={formValues[field.name]}
+                      onChange={(e) => handleChange(field.name, e.target.value)}
+                    />
+                  )}
+
+                  {field.type === "date" && (
+                    <TextField
+                      fullWidth
+                      type="date"
+                      label={field.label}
+                      InputLabelProps={{ shrink: true }}
+                      variant="outlined"
+                      value={formValues[field.name]}
+                      onChange={(e) => handleChange(field.name, e.target.value)}
+                    />
+                  )}
+
+                  {field.type === "select" && (
+                    <TextField
+                      fullWidth
+                      select
+                      label={field.label}
+                      variant="outlined"
+                      value={formValues[field.name]}
+                      onChange={(e) => handleChange(field.name, e.target.value)}
+                    >
+                      {field.options.map((option, idx) => (
+                        <MenuItem key={idx} value={option.value}>
+                          {option.label}
+                        </MenuItem>
+                      ))}
+                    </TextField>
+                  )}
+
+                  {field.type === "checkbox" && (
+                    <FormControlLabel
+                      control={
+                        <Checkbox
+                          checked={!!formValues[field.name]}
+                          onChange={(e) =>
+                            handleChange(field.name, e.target.checked)
+                          }
+                        />
+                      }
+                      label={field.label}
+                    />
+                  )}
+
+                  {field.type === "radio" && (
+                    <Box>
+                      <FormLabel>{field.label}</FormLabel>
+                      <RadioGroup
+                        value={formValues[field.name]}
+                        onChange={(e) =>
+                          handleChange(field.name, e.target.value)
+                        }
+                      >
+                        {field.options.map((option, idx) => (
+                          <FormControlLabel
+                            key={idx}
+                            value={option.value}
+                            control={<Radio />}
+                            label={option.label}
+                          />
+                        ))}
+                      </RadioGroup>
+                    </Box>
+                  )}
+
+                  {field.type === "switch" && (
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={!!formValues[field.name]}
+                          onChange={(e) =>
+                            handleChange(field.name, e.target.checked)
+                          }
+                        />
+                      }
+                      label={field.label}
+                    />
+                  )}
+
+                  {field.type === "table" && (
+                    <TableField field={field} key={index} />
+                  )}
                 </Box>
-              )}
-
-              {/* Tipo de Campo: Switch */}
-              {field.type === "switch" && (
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={!!formValues[field.name]}
-                      onChange={(e) =>
-                        handleChange(field.name, e.target.checked)
-                      }
-                    />
-                  }
-                  label={field.label}
-                />
-              )}
+              ))}
             </Box>
-          ))}
-        </Box>
-      </Box>
-    </Paper>
+          </Box>
+        </Paper>
+      ))}
+    </Box>
   );
 };
 
