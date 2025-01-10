@@ -64,33 +64,23 @@ const LayoutViewer = () => {
     let currentHeight = 0;
 
     fields.forEach((field) => {
-      // Calcula a altura estimada do campo
       const estimatedHeight = estimateFieldHeight(field);
 
-      // Verifica se o campo excede a altura da página
       if (currentHeight + estimatedHeight > PAGE_HEIGHT_MM) {
-        pages.push(currentPage); // Adiciona a página atual à lista
-        currentPage = []; // Reinicia a página
-        currentHeight = 0; // Reinicia a altura da página
+        pages.push(currentPage);
+        currentPage = [];
+        currentHeight = 0;
       }
 
-      // Adiciona o campo à página
       currentPage.push(field);
       currentHeight += estimatedHeight;
-
-      // Para campos tipo 'table' ou 'textbox', calcula a altura especial
-      if (field.type === "table" || field.type === "textbox") {
-        const specialHeight = estimateTextboxHeight(field.value || "");
-        if (currentHeight + specialHeight > PAGE_HEIGHT_MM) {
-          // Se o campo especial exceder a altura, começa uma nova página
-          pages.push(currentPage);
-          currentPage = [];
-          currentHeight = 0;
-        }
-        currentHeight += specialHeight; // Adiciona a altura especial
-      }
     });
 
+    if (currentPage.length > 0) {
+      pages.push(currentPage);
+    }
+
+    setPages(pages);
     // Adiciona a última página, se houver campos restantes
     if (currentPage.length > 0) {
       pages.push(currentPage);
@@ -123,27 +113,28 @@ const LayoutViewer = () => {
   };
   // Função para estimar a altura de um campo de texto
   const estimateTextboxHeight = (text) => {
-    // Verifica se o campo de texto tem um valor válido
-    if (!text) {
-      return 20; // Retorna altura mínima caso o texto esteja vazio ou indefinido
-    }
-
-    // Divide o texto em linhas e conta o número de linhas
-    const CHARACTERS_PER_LINE = 58; // Ajuste conforme necessário
-    const lineHeight = 20; // Ajuste a altura da linha conforme o estilo do seu textarea
-
-    // Calcula o número de linhas com base no comprimento do texto
-    const numberOfLines = Math.ceil(text.length / CHARACTERS_PER_LINE);
-
-    // Retorna a altura estimada com base no número de linhas
-    return numberOfLines * lineHeight;
+    const lines = (text || "").split("\n").length;
+    const averageLineHeight = 15; // Altura média por linha
+    return Math.max(20, lines * averageLineHeight);
   };
 
   const handleChange = (name, value) => {
-    setFormValues((prevValues) => ({
-      ...prevValues,
-      [name]: value,
-    }));
+    setFormValues((prevValues) => {
+      const updatedValues = {
+        ...prevValues,
+        [name]: value,
+      };
+
+      // Recalcular o layout com os novos valores
+      const updatedFields = template.fields.map((field) => ({
+        ...field,
+        value: updatedValues[field.name] || field.defaultValue || "",
+      }));
+
+      paginateFields(updatedFields);
+
+      return updatedValues;
+    });
   };
 
   const handleSubmit = (e) => {
@@ -163,6 +154,7 @@ const LayoutViewer = () => {
             height: `${PAGE_HEIGHT_MM}mm`,
             margin: "1%",
             pageBreakAfter: "always",
+            overflow: "hidden",
           }}
         >
           <Box sx={{ padding: 3, maxWidth: 600, margin: "0 auto" }}>
